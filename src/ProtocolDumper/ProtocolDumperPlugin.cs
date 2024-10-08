@@ -21,7 +21,7 @@ public class ProtocolDumperPlugin : BasePlugin
 		var includeDateConfigEntry = Config.Bind("General", "IncludeDate", false,
 			"Whether to include the current date and time in the output directory name.");
 
-		var dumpPathConfigEntry = Config.Bind("General", "OutputDirectory", DefaultProtocolDumpPath, 
+		var dumpPathConfigEntry = Config.Bind("General", "OutputDirectory", DefaultProtocolDumpPath,
 			"The path where the protocol files will be dumped to.");
 
 		_protocolDumpPath ??= includeDateConfigEntry.Value
@@ -72,7 +72,8 @@ public class ProtocolDumperPlugin : BasePlugin
 
 		void Start()
 		{
-			if (_loadedAssemblies == null) {
+			if (_loadedAssemblies == null)
+			{
 				logger.LogFatal("No protocol assemblies could be loaded, aborting...");
 				DestroyImmediate(this);
 				return;
@@ -80,16 +81,47 @@ public class ProtocolDumperPlugin : BasePlugin
 
 			try
 			{
-				foreach (var assembly in _loadedAssemblies.Where(ReflectionExtensions.IsProtocolAssembly))
-				{
-					var protocolType = assembly.GetName().Name!.GetLastSegment().ToLowerInvariant();
-					var dumpPath = Path.Combine(_protocolDumpPath ??= DefaultProtocolDumpPath, protocolType);
+                var assemblies = AppDomain.CurrentDomain.GetAssemblies();
 
-					DumpProtocolFor(assembly, Directory.CreateDirectory(dumpPath));
-					
-					logger.LogInfo($"'{protocolType}' protocol files have successfully been dumped at '{dumpPath}' ! ");
-				}
-			}
+                foreach (var ass in assemblies)
+                {
+                    if (ass.FullName == null || !ass.FullName.StartsWith("Ankama.Dofus.Protocol"))
+                        continue;
+
+                    var types = ass.GetTypes();
+                    foreach (var t in types)
+                    {
+                        if (!t.Name.EndsWith("Reflection"))
+                            continue;
+
+                        var descriptorProperty = t.GetProperty("Descriptor");
+
+                        if (descriptorProperty == null)
+                            continue;
+
+                        var descriptor = descriptorProperty.GetValue(null);
+                        var descriptorType = descriptor.GetType();
+
+                        var protoProperty = descriptorType.GetProperty("Proto");
+                        var proto = protoProperty.GetValue(descriptor);
+
+                        var toStringMethod = proto.GetType().GetMethod("ToString");
+                        var res = (string)toStringMethod.Invoke(proto, Array.Empty<object>());
+
+                        string fullName = t.FullName;
+
+                        int lastDotIndex = fullName.LastIndexOf('.');
+                        if (lastDotIndex >= 0)
+                        {
+                            fullName = fullName.Substring(0, lastDotIndex);
+                        }
+
+                        File.WriteAllText("./output/" + fullName + ".json", res);
+
+                        Console.WriteLine(descriptor);
+                    }
+                }
+            }
 			finally { DestroyImmediate(this); } // we only need to run this once
 		}
 
